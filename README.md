@@ -1,7 +1,7 @@
 # jira-clone-epic
 Clone epic with it's subtasks and linked issues.
 
-#Usage
+# Usage
 Usage: node ./cloneEpic.js --user [String] --password [String] --host [String] --epicKey [String] --project [String]
 
 Options:
