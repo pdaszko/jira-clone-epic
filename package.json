@@ -1,0 +1,19 @@
+{
+  "name": "jira-clone-epic",
+  "version": "1.0.0",
+  "description": "",
+  "main": "cloneEpic.js",
+  "dependencies": {
+    "jira": "^0.9.2",
+    "js-jira": "^0.12.2",
+    "npm": "^6.0.1",
+    "optimist": "^0.6.1",
+    "promise": "^8.0.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "pdaszko",
+  "license": "MIT"
+}
