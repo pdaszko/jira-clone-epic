@@ -224,19 +224,8 @@ var cloneEpicTicket = function(issue, newTicketKey_){
 	});
 }
 
-var cloneSubtask33 = function(issue, parent_){
-	var tmp = issue;
-	tmp.fields.parent = { key: parent_ };
-	//console.log(prepareTemplate(tmp));
-	console.log(JSON.stringify(prepareTemplate(tmp)));
-	return cloneTicket(issue, prepareTemplate(tmp))
-	.then(function(res){return res}, function(err){console.log('Clone subtask error ', err)});
-}
-
-
 var cloneSubtask = function(issue_, parent_){
 		return new Promise(function(resolve, reject) {
-			//console.log('Clone subtask', issue_.key);
 			findTicketByKey(issue_.key).then(function (issue){
 					var tmp = issue_;
 					tmp.fields.parent = { key: parent_ };
@@ -244,10 +233,9 @@ var cloneSubtask = function(issue_, parent_){
 						tmp.fields.labels = issue.fields.labels;
 					}
 
-					// if (issue.fields.customfield_10012) {
-					// 	tmp.fields.labels = issue.fields.customfield_10012;
-					// }
-					//console.log(JSON.stringify(prepareTemplate(tmp)));
+					if (issue.fields.description) {
+	 					tmp.fields.description = issue.fields.description;
+					}
 			
 				jira.addNewIssue(prepareTemplate(tmp).ticket, (error ,response) => {
 
@@ -256,10 +244,8 @@ var cloneSubtask = function(issue_, parent_){
 					 		var obj = {};
 					 		obj[issue_.key] = response.key
 					 		var tmp_key = issue.key;
-					 		//console.log('Obj', obj);
 					 		resolve(obj);
 					} else {
-						//console.log("Err", error, response);
 						reject(error, response);
 					}		
 				});
