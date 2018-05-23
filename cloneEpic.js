@@ -1,25 +1,25 @@
 /* jshint esversion:6 */
-var Promise = require('promise');
-var JiraApi = require('jira').JiraApi;
+var Promise = require("promise");
+var JiraApi = require("jira").JiraApi;
 
 
-var argv = require('optimist')
-	.usage('Usage: $0 --user [String] --password [String] --host [String] --epicKey [String] --project [String]')
-    .demand(['user','password', 'host', 'epicKey']).argv;
+var argv = require("optimist")
+	.usage("Usage: $0 --user [String] --password [String] --host [String] --epicKey [String] --project [String]")
+    .demand(["user","password", "host", "epicKey"]).argv;
 
 const epic = argv.epicKey;
 const newProjectKey = argv.project;
 var ticketsMap = {};
 
-var jira = new JiraApi('https',
+var jira = new JiraApi("https",
 	argv.host, 
 	443,
-	argv.user, argv.password, '2', true);
+	argv.user, argv.password, "2", true);
 
 var issueTemplate = function () {
 	return {
 		fields : {
-			summary:'',
+			summary:"",
 			issuetype: {},
 			priority:{},
 		}
@@ -166,7 +166,7 @@ var cloneTicket = function  (issue, cloneTemplate = null) {
 			 			obj[issue.key] = response.key;
 			 			data.push(obj)
 			 		    resolve(data);
-			 	}, function(err){console.log('Error : ', err)});
+			 	}, function(err){console.log("Error : ", err)});
 			 	} else {
 			 		var obj = {};
 			 		obj[issue.key] = response.key
@@ -198,14 +198,14 @@ var copyElements = function(data) {
 var cloneEpicTicketst = function (epicNumber, newTicketKey) {
 	var tickets_ = [];
 	return new Promise(function(resolve, reject) {
-		jira.searchJira('"Epic Link" = ' + epicNumber, null, 
+		jira.searchJira("\"Epic Link\" = " + epicNumber, null, 
 		(error, body) => {
 			var res = Promise.all(body.issues.map(function (obj) {
 			 		 	return cloneEpicTicket(obj, newTicketKey);
 			 		 }))
 						.then(function(data){
 								 resolve(copyElements(data));
-			}, function (err){console.log('Error while cloning epic ticket :', err)});					
+			}, function (err){console.log("Error while cloning epic ticket :", err)});					
 		});
 	});
 }
@@ -219,7 +219,7 @@ var cloneEpicTicket = function(issue, newTicketKey_){
 								return res;
 							}, 
 							function(err){
-								console.log('Clone epic ticket error ', err);
+								console.log("Clone epic ticket error ", err);
 							});
 	});
 }
@@ -301,7 +301,7 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 		var tmp = findClonedTicketKey(linkedIssueData.outwardIssue.key, data);
 		if (tmp == null || tmp === undefined) {
 			tmp = linkedIssueData.outwardIssue.key;
-				console.log('Ticket is not cloned ', linkedIssueData.outwardIssue.key)
+				console.log("Ticket is not cloned ", linkedIssueData.outwardIssue.key)
 			}
 		var updatestr= {
 				   "update":{
@@ -324,7 +324,7 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 
 	jira.updateIssue(findClonedTicketKey(ticketNumber, data), updatestr, function(err, res){
 			if (err || !res) {
-				console.log('Error during updating tikcet: ', ticketNumber, 'Error :', err, 'Response : '. res);
+				console.log("Error during updating tikcet: ", ticketNumber, "Error :", err, "Response : ". res);
 			} 
 			return res;
 		});
@@ -332,7 +332,7 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 		var tmp = findClonedTicketKey(linkedIssueData.inwardIssue.key, data);
 		if (tmp == null || tmp === undefined) {
 			tmp = linkedIssueData.inwardIssue.key;
-				console.log('Ticket is not cloned but linked ', linkedIssueData.inwardIssue.key)
+				console.log("Ticket is not cloned but linked ", linkedIssueData.inwardIssue.key)
 			}
 		var updatestr= {
 				   "update":{
@@ -355,12 +355,12 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 
 		jira.updateIssue(findClonedTicketKey(ticketNumber, data), updatestr, function(err, res){
 			if (err || !res) {
-				console.log('Error during updating tikcet: ', ticketNumber, 'Error :', err, 'Response : '. res);
+				console.log("Error during updating tikcet: ", ticketNumber, "Error :", err, "Response : ". res);
 			} 
 			return res;
 		});
 	} else {
-		console.log('Something wrong!!' , ticketNumber, linkedIssueData);
+		console.log("Something wrong!!" , ticketNumber, linkedIssueData);
 	}
 
 }
@@ -387,7 +387,7 @@ var cloneEpic = function (epicKey) {
 			return cloneEpicTicketst(epicKey, findClonedTicketKey(epicKey , result)).then(function(res){
 				result.push(res);
 				result = copyElements(result);
-				//console.log('Final ', result);
+				//console.log("Final ", result);
 
 				result.map(function (o){
 					return udpateTickett(o, result);
@@ -400,9 +400,9 @@ var cloneEpic = function (epicKey) {
 	}, 
 			function(error){console.log(error);});
 
-	}, function(error){console.log('Error ', error);});
+	}, function(error){console.log("Error ", error);});
 };
 
-cloneEpic(epic).then(function(result){console.log('Cloned epic: ', findClonedTicketKey(epic, result));});
+cloneEpic(epic).then(function(result){console.log("Cloned epic: ", findClonedTicketKey(epic, result));});
 
 
