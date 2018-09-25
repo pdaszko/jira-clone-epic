@@ -474,7 +474,7 @@ var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", t
 var cloneEpic = function (epicKey) {
 	return findTicketByKey(epicKey).then(function(issue){
 		return cloneTicket(issue).then(function(result){
-			console.log("Result: ", result);
+			//console.log("Result: ", result);
 			return cloneEpicTicketst(epicKey, findClonedTicketKey(epicKey , result)).then(function(res){
 				result.push(res);
 				//console.log("RESULT 0: ", result);
