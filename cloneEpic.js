@@ -1,21 +1,174 @@
 /* jshint esversion:6 */
-var Promise = require("promise");
+require("promise");
 var JiraApi = require("jira").JiraApi;
 
 
 var argv = require("optimist")
-	.usage("Usage: $0 --user [String] --password [String] --host [String] --epicKey [String] --project [String]")
+	.usage("Usage: $0 --user [String] --password [String] --host [String] --epicKey [String] --project [String] --prefix [String] --debug [boolean]")
     .demand(["user","password", "host", "epicKey"]).argv;
 
 const epic = argv.epicKey;
 const newProjectKey = argv.project;
+const prefix = argv.prefix;
 var ticketsMap = {};
 
-// var jira = new JiraApi("https",
-// 	argv.host, 
-// 	443,
-// 	argv.user, argv.password, "2", true);
 
+/**
+ * Algorythm :
+ * 1. Clone Epic with it's subtickets
+ * 2. Find all tickets linked to the epic
+ * 3. Clone all linked subtickets to the epic with their subtickets
+ * 4. Link issues to new structure
+ */
+
+
+var jiraWrapper = (function (){
+
+	const retries = 10;
+ 
+	const jira = new JiraApi("https",
+		argv.host, 
+		443,
+		argv.user, argv.password, "2", true);
+
+
+	/**
+	 * Find ticket by key value with specific retry number
+	 *
+	 * @param  {[type]} key         [description]
+	 * @param  {[type]} retryNumber [description]
+	 *
+	 * @return {[type]}             [description]
+	 */
+	var findTicketByKey = function(key, retryNumber = 0) {
+		console.log("KEY: ", key);
+		if (key == undefined || key == "") {
+			console.log("Key of the ticket is undefined");
+		 	return Promise.reject(new Error("Key is undefined."));
+		}
+		if (retryNumber > this.retries) {
+			return Promise.reject(new Error("Reached limit of retries to find tikcet " + key));
+		}
+		return new Promise(function(resolve, reject) {
+			jira.findIssue(key, function(err, issue) {
+				if (err) {
+					console.log(retryNumber, err);
+					resolve (findTicketByKey(key, retryNumber + 1));
+	            } else {
+	                resolve(issue);
+	            }
+			});
+	    });
+	};
+
+	return {
+		findTicketByKey : findTicketByKey
+	};
+
+
+})();
+
+var cloneTemplateOfTicket = (function(){
+	var orginalKey;
+	const subtasks = [];
+	var ticketFields;
+
+	var setOrginalKey = function(key) {
+		this.orginalKey = key;
+		return Promise.resolve(this);
+	};
+
+	var resolveTicket = function(){
+		return jiraWrapper.findTicketByKey(this.orginalKey).then(function(value){
+				this.ticketFields = prepareTemplate(value);
+				return Promise.resolve(this);
+		}).catch(function(err){
+			console.log(err);
+			return Promise.reject(new Error(err));
+		});
+
+	};
+
+	return {
+		setOrginalKey : setOrginalKey,
+		resolveTicket : resolveTicket
+	};
+})();
+
+// cloneTemplateOfTicket.setOrginalKey("IT-6822")
+// .then(async function(result, reject){
+// 	result = await result.resolveTicket();
+
+// 	console.log(result.ticketFields);
+
+	
+// });
+
+/**
+ * Connection to jira
+ *
+ * @type {JiraApi}
+ */
+var jira = new JiraApi("https",
+	argv.host, 
+	443,
+	argv.user, argv.password, "2", true);
+
+/**
+ * Check if debug is turn on
+ *
+ * @return {boolean} - debug of
+ */
+function debug(){
+	if (argv.debug) {
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Get prefix
+ *
+ * @return {[type]} [description]
+ */
+function getPrefix(){
+	if (argv.prefix) {
+		return argv.prefix;
+	}
+
+	return "";
+}
+
+/**
+ * Write debug message
+ *
+ * @param  {string} message - message to print
+ *
+ * @return {void}  
+ */
+function debugMessage(message) {
+	if(debug()){
+		console.log(message);
+	}
+}
+
+/**
+ * Info message
+ *
+ * @param  {string} message info message to print
+ *
+ * @return {void}
+ */
+function infoMessage(message) {
+	console.log("INFO: ", message);
+}
+
+/**
+ * Template of the issue
+ *
+ * @return {object} temple of the issue
+ */
 var issueTemplate = function () {
 	return {
 		fields : {
@@ -24,9 +177,19 @@ var issueTemplate = function () {
 			priority:{},
 		}
 	};
-}
+};
 
+
+/**
+ * Prepare template of the issue
+ *
+ * @param  {object} issue template 
+ *
+ * @return {object}       return object
+ */
 var prepareTemplate = function (issue) {
+
+	//console.log(issue);
 	const clone = {};
 	clone.ticket = issueTemplate();
 
@@ -45,6 +208,15 @@ var prepareTemplate = function (issue) {
 	 		clone.ticket.fields.description = issue.fields.description;
 	}
 
+	//copy description
+	// if (issue.fields && issue.fields.customfield_10010 && issue.fields.customfield_10010.value) {
+	//  		issue.fields.status = {}
+	// 		console.log(clone.ticket.fields.customfield_10010);
+	// 		clone.ticket.fields.customfield_10010 = {}
+	//  		clone.ticket.fields.customfield_10010.value = issue.fields.customfield_10010.value;
+	// }
+
+
 	//copy labels
 	if (issue.fields.labels) {
 	 	clone.ticket.fields.labels = issue.fields.labels;
@@ -59,7 +231,8 @@ var prepareTemplate = function (issue) {
 		clone.ticket.fields.customfield_10009 = issue.fields.customfield_10009;
 	}
 
-	clone.ticket.fields.summary = issue.fields.summary;
+
+	clone.ticket.fields.summary = getPrefix() + issue.fields.summary;
 
 
 	clone.ticket.fields.priority.id = issue.fields.priority.id;
@@ -70,7 +243,7 @@ var prepareTemplate = function (issue) {
 	clone.ticket.fields.issuetype.name = issue.fields.issuetype.name;
 
 	if (issue.fields.parent && issue.fields.parent.key) {
-		clone.ticket.fields.parent = {}
+		clone.ticket.fields.parent = {};
 		clone.ticket.fields.parent.key = issue.fields.parent.key;
 	}
 
@@ -85,76 +258,45 @@ var prepareTemplate = function (issue) {
 	}
 
 	return clone;
-}
+};
 
-
-var findTicket = function (key) {
-	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
-		jira.findIssue(key, function(err, issue) {
-			if (err) {
-				// console.log("Error on find issue 2");
-                reject(err);
-            } else {
-                resolve(issue.key);
-            }
-		});
-    })
-}
-
+/**
+ * Find ticket by key value with specific retry number
+ *
+ * @param  {[type]} key         [description]
+ * @param  {[type]} retryNumber [description]
+ *
+ * @return {[type]}             [description]
+ */
 var findTicketByKey = function(key, retryNumber) {
 	if (!retryNumber) {
 		retryNumber = 0;
 	}
 	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
 		jira.findIssue(key, function(err, issue) {
 			if (err) {
-				// console.log("Retry on find ", retryNumber);
 				resolve (findTicketByKey(key, retryNumber + 1));
             } else {
                 resolve(issue);
             }
 		});
-    })
+    });
+};
+
+
+function addNewTicket(template) {
+	return new Promise(function(resolve, reject){
+	});
 }
-
-
-var findKeyByKey = function(key) {
-	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
-		jira.findIssue(key, function(err, issue) {
-			if (err) {
-				// console.log("Error on find issue 4");
-                reject(err);
-            } else {
-                resolve(issue.key);
-            }
-		});
-
-    })
-}
-
-var findTicketKey = function(ticket) {
-	return ticket.key
-}
- 
-
-var findTicketByTicket = function(key_) {
-	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
-		jira.findIssue(key_.key, function(err, issue) {
-			if (err) {
-				// console.log("Error on find issue");
-                reject(err);
-            } else {
-                resolve(issue);
-            }
-		});
-    })
-}
-
-var cloneTicket = function  (issue, cloneTemplate = null) {
+/**
+ * Clone ticket with specific template
+ *
+ * @param  String issue         ticket 
+ * @param  Object cloneTemplate [description]
+ *
+ * @return {[type]}               [description]
+ */
+function cloneTicket(issue, cloneTemplate = null) {
 	var cloneIssue = null;
 
 	if (cloneTemplate) {
@@ -163,10 +305,9 @@ var cloneTicket = function  (issue, cloneTemplate = null) {
 		cloneIssue = prepareTemplate(issue);
 	}
 	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
 		jira.addNewIssue(cloneIssue.ticket, (error ,response) => {
-
-			if(response && !error) {
+	 		var obj = {};
+			if(response) {
 			 	const newTicketKey = response.key;
 			 	// console.log('Cloned ticket ', issue.key, ' -> ', newTicketKey);
 			 	if (issue.fields.subtasks) {
@@ -175,27 +316,24 @@ var cloneTicket = function  (issue, cloneTemplate = null) {
 			 		 		return cloneSubtask(obj, newTicketKey);
 			 		 	}
 			 		))
-			 		.then(function(data){
-			 			var obj = {}
-			 			obj[issue.key] = response.key;
-			 			data.push(obj)
-			 		    resolve(data);
-			 		}
-
-			 		// , function(err){
-			 		// 	console.log("Error when adding new issue : ", cloneIssue.ticket, "Data", data, '\nError', err)
-			 		// }
-
-
+			 		.then(
+			 			function(data){
+				 			var obj_ = {};
+				 			obj_[issue.key] = newTicketKey;
+				 			data.push(obj_);
+				 		    resolve(data);
+			 			}, 
+			 			function(err){
+			 				debugMessage("Error when adding new issue : ", cloneIssue.ticket, "Data", data, '\nError', err);
+			 			}
 			 		);
 			 	} else {
-			 		var obj = {};
-			 		obj[issue.key] = response.key
-			 		var tmp_key = issue.key;
+			 		obj[issue.key] = newTicketKey;
 			 		resolve(obj);
 			 	}
-			} else {
-				// console.log("Error when adding new issue : ", cloneIssue.ticket, '\n     Error', error);
+			}
+
+			if (error) {
 	 			resolve (cloneTicket(issue, cloneTemplate));
 			}		
 		});
@@ -203,55 +341,7 @@ var cloneTicket = function  (issue, cloneTemplate = null) {
 }
 
 
-var copyElements = function(data) {
-	var tmp =[];
-	data.forEach(d => {
-		if (d.constructor === Array) {
-			d.forEach(e => {
-				tmp.push(e);
-			})
-		} else {
-			tmp.push(d);
-		}
-	});
-	return tmp;
-}
-
-var cloneEpicTicketst = function (epicNumber, newTicketKey) {
-	var tickets_ = [];
-	return new Promise(function(resolve, reject) {
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
-		jira.searchJira("\"Epic Link\" = " + epicNumber, null, 
-		(error, body) => {
-			var res = Promise.all(body.issues.map(function (obj) {
-			 		 	return cloneEpicTicket(obj, newTicketKey);
-			 		 }))
-						.then(function(data){
-								 resolve(copyElements(data));
-			}, function (err){
-				// console.log("Error while cloning epic ticket :", err);
-			});					
-		});
-	});
-}
-
-var cloneEpicTicket = function(issue, newTicketKey_){
-	return findTicketByKey(issue.key).then(function(result){
-		var tmp = result;
-		tmp.fields.customfield_10009 = newTicketKey_;
-			return cloneTicket(result, prepareTemplate(tmp))
-					.then(	function(res){ 
-								return res;
-							}, 
-							function(err){
-								// console.log("Clone epic ticket error.", "\nTicket to clone: ", issue, "\nError: ", err, "\n Template: ", prepareTemplate(tmp));
-								// console.log("Retrying:");
-								return cloneTicket(result, prepareTemplate(tmp));
-							});
-	});
-}
-
-var cloneSubtask = function(issue_, parent_){
+function cloneSubtask(issue_, parent_){
 		return new Promise(function(resolve, reject) {
 			findTicketByKey(issue_.key).then(function (issue){
 					var tmp = issue_;
@@ -263,13 +353,12 @@ var cloneSubtask = function(issue_, parent_){
 					if (issue.fields.description) {
 	 					tmp.fields.description = issue.fields.description;
 					}
-			var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
 				jira.addNewIssue(prepareTemplate(tmp).ticket, (error ,response) => {
 
 					if(response && !error) {
 					 	const newTicketKey = response.key;
 					 		var obj = {};
-					 		obj[issue_.key] = response.key
+					 		obj[issue_.key] = response.key;
 					 		var tmp_key = issue.key;
 					 		resolve(obj);
 					} else {
@@ -281,14 +370,70 @@ var cloneSubtask = function(issue_, parent_){
 		});
 }
 
+
+function copyElements(data) {
+	var tmp =[];
+	data.forEach(d => {
+		if (d.constructor === Array) {
+			d.forEach(e => {
+				tmp.push(e);
+			});
+		} else {
+			tmp.push(d);
+		}
+	});
+	return tmp;
+}
+
+
+/**
+ * 
+ *
+ * @param  {[type]} epicNumber   [description]
+ * @param  {[type]} newTicketKey [description]
+ *
+ * @return {[type]}              [description]
+ */
+var cloneEpicTicketst = function (epicNumber, newTicketKey) {
+	var tickets_ = [];
+	return new Promise(function(resolve, reject) {
+		jira.searchJira("\"Epic Link\" = " + epicNumber, null, (error, body) => {
+			var res = Promise.all(
+						body.issues.map(function (obj) {
+			 		 		return cloneEpicTicket(obj, newTicketKey);
+			 		 	})).then(function(data){
+									resolve(copyElements(data));
+								}, function (err){
+
+								});					
+		});
+	});
+};
+
+var cloneEpicTicket = function(issue, newTicketKey_){
+	return findTicketByKey(issue.key).then(function(result){
+		var tmp = result;
+		tmp.fields.customfield_10009 = newTicketKey_;
+			return cloneTicket(result, prepareTemplate(tmp))
+					.then(	function(res){ 
+								return res;
+							}, 
+							function(err){
+								debugMessage(["This should not happend", err]);
+							});
+	});
+};
+
+
+
 /**
  * @param  {Object}
  * @param  {[type]}
  * @return {[type]}
  */
-var findTicketInObject = function(obj, ticket) {
+function findTicketInObject (obj, ticket) {
 	if (obj[ticket]){
-		return obj[ticket]
+		return obj[ticket];
 	}
 }
 
@@ -309,11 +454,11 @@ Array.prototype.clean = function(deleteValue) {
 
 var findClonedTicketKey = function(ticket, listOfCLonedTickets) {
 	var tmp = listOfCLonedTickets.map(function(obj){
-		return findTicketInObject(obj, ticket)
+		return findTicketInObject(obj, ticket);
 	});
 	tmp = tmp.clean(undefined);
-	return tmp[0]
-}
+	return tmp[0];
+};
 
 /**
  *
@@ -329,7 +474,8 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 		var tmp = findClonedTicketKey(linkedIssueData.outwardIssue.key, data);
 		if (tmp == null || tmp === undefined) {
 			tmp = linkedIssueData.outwardIssue.key;
-				console.log("Ticket is not cloned ", linkedIssueData.outwardIssue.key)
+
+				console.log("Ticket is not cloned ", linkedIssueData.outwardIssue.key);
 			}
 		var updatestr= {
 				   "update":{
@@ -348,8 +494,7 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 				         }
 				      ]
 				   }
-				}
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
+				};
 		jira.updateIssue(findClonedTicketKey(ticketNumber, data), updatestr, function(err, res){
 			if (err || !res) {
 				// console.log("Error during updating tikcet: ", ticketNumber, "Error :", err, "Response : ". res);
@@ -358,12 +503,12 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 			return res;
 		});
 	} else if (linkedIssueData.inwardIssue) {
-		var tmp = findClonedTicketKey(linkedIssueData.inwardIssue.key, data);
-		if (tmp == null || tmp === undefined) {
-			tmp = linkedIssueData.inwardIssue.key;
-				console.log("Ticket is not cloned but linked ", linkedIssueData.inwardIssue.key)
+		var tmp_ = findClonedTicketKey(linkedIssueData.inwardIssue.key, data);
+		if (tmp_ == null || tmp_ === undefined) {
+			tmp_ = linkedIssueData.inwardIssue.key;
+				console.log("Ticket is not cloned but linked ", linkedIssueData.inwardIssue.key);
 			}
-		var updatestr= {
+		var updatestr_ = {
 				   "update":{
 				      "issuelinks":[
 				         {
@@ -374,15 +519,14 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 				                  "outward":linkedIssueData.type.outward
 				               },
 				               "inwardIssue":{
-				                  "key": tmp
+				                  "key": tmp_
 				               }
 				            }
 				         }
 				      ]
 				   }
-				}
-		var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
-		jira.updateIssue(findClonedTicketKey(ticketNumber, data), updatestr, function(err, res){
+				};
+		jira.updateIssue(findClonedTicketKey(ticketNumber, data), updatestr_, function(err, res){
 			if (err || !res) {
 				// console.log("Error during updating tikcet: ", ticketNumber, "Error :", err, "Response : ". res);
 				return updateLinkedIssues(ticketNumber, linkedIssueData, data);
@@ -393,7 +537,7 @@ var updateLinkedIssues = function(ticketNumber, linkedIssueData, data) {
 		console.log("Something wrong!!" , ticketNumber, linkedIssueData);
 	}
 
-}
+};
 
 /**
  *
@@ -413,7 +557,6 @@ function udpateTickett (ticket, data) {
 
 
 var updateIssue2 = function(issueUpdate, callback) {
-	var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
     var options = {
         rejectUnauthorized: jira.strictSSL,
         uri: jira.makeUri('rest/greenhopper/1.0/api/rank/after'),
@@ -441,7 +584,6 @@ var updateIssue2 = function(issueUpdate, callback) {
 };
 
 function updateRanking(ticket, data) {
-var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", true);
 	jira.searchJira("\"Epic Link\" = " + ticket + " ORDER BY Rank ", null, 
 		(error, body) => {
 			// if (error) {
@@ -459,7 +601,7 @@ var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", t
 	      									}; 
 	      				updateIssue2(updateRankBody, function(err, body_){
 	      					if(err) {
-	      						console.log("Error when updatating ranking for ticket", err);
+	      						debugMessage("Error when updatating ranking for ticket", err);
 	      						updateRanking(ticket, data);
 	      					}
 	      				});
@@ -472,29 +614,29 @@ var jira = new JiraApi("https", argv.host, 443, argv.user, argv.password, "2", t
 }
 
 var cloneEpic = function (epicKey) {
-	return findTicketByKey(epicKey).then(function(issue){
-		return cloneTicket(issue).then(function(result){
-			//console.log("Result: ", result);
-			return cloneEpicTicketst(epicKey, findClonedTicketKey(epicKey , result)).then(function(res){
-				result.push(res);
-				//console.log("RESULT 0: ", result);
-				result = copyElements(result);
+	var listOfAllIssues = [];
 
-				//console.log("RESULT 1: ", result);
+	return findTicketByKey(epicKey)
+				.then(function(issue){
+						return cloneTicket(issue)
+								.then(function(result){
+									return cloneEpicTicketst(epicKey, findClonedTicketKey(epicKey , result))
+											.then(function(res){
+												listOfAllIssues.push(res);
+												result = copyElements(result);
+												result.map(function (o){
+													return udpateTickett(o, result);
+												});
 
-				result.map(function (o){
-					return udpateTickett(o, result);
-				});
+							//console.log("RESULT 2: ", result);
+							updateRanking(epicKey, result);
+							//console.log("RESULT 3: ", result);
+							return result;
 
-				//console.log("RESULT 2: ", result);
-				updateRanking(epicKey, result);
-				//console.log("RESULT 3: ", result);
-				return result;
-
-			 }, function(error){
-			 	// console.log("Error main", error);
-		}
-			);
+						 }, function(error){
+						 	// console.log("Error main", error);
+							}
+						);
 
 	}, 
 			function(error){ 
@@ -507,5 +649,7 @@ var cloneEpic = function (epicKey) {
 };
 
 cloneEpic(epic).then(function(result){console.log("Cloned epic: ", findClonedTicketKey(epic, result));});
+//cloneTemplateOfTicket("IT-6821");
+
 
 
