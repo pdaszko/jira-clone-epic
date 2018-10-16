@@ -41,7 +41,7 @@ var jiraWrapper = (function (){
 	 * @return {[type]}             [description]
 	 */
 	var findTicketByKey = function(key, retryNumber = 0) {
-		console.log("KEY: ", key);
+		//console.log("KEY: ", key);
 		if (key == undefined || key == "") {
 			console.log("Key of the ticket is undefined");
 		 	return Promise.reject(new Error("Key is undefined."));
@@ -52,7 +52,7 @@ var jiraWrapper = (function (){
 		return new Promise(function(resolve, reject) {
 			jira.findIssue(key, function(err, issue) {
 				if (err) {
-					console.log(retryNumber, err);
+					//console.log(retryNumber, err);
 					resolve (findTicketByKey(key, retryNumber + 1));
 	            } else {
 	                resolve(issue);
@@ -83,7 +83,7 @@ var cloneTemplateOfTicket = (function(){
 				this.ticketFields = prepareTemplate(value);
 				return Promise.resolve(this);
 		}).catch(function(err){
-			console.log(err);
+			//console.log(err);
 			return Promise.reject(new Error(err));
 		});
 
@@ -208,15 +208,14 @@ var prepareTemplate = function (issue) {
 	 		clone.ticket.fields.description = issue.fields.description;
 	}
 
-	//copy description
+	//set the flow
+	// //console.log(issue);
 	// if (issue.fields && issue.fields.customfield_10010 && issue.fields.customfield_10010.value) {
-	//  		issue.fields.status = {}
-	// 		console.log(clone.ticket.fields.customfield_10010);
-	// 		clone.ticket.fields.customfield_10010 = {}
 	//  		clone.ticket.fields.customfield_10010.value = issue.fields.customfield_10010.value;
 	// }
-
-
+	// clone.ticket.fields.status = {};
+ //    clone.ticket.fields.status.name = 'Backlog';
+	// clone.ticket.fields.status.id = 10000;
 	//copy labels
 	if (issue.fields.labels) {
 	 	clone.ticket.fields.labels = issue.fields.labels;
@@ -284,7 +283,7 @@ var findTicketByKey = function(key, retryNumber) {
 };
 
 
-function addNewTicket(template) {
+async function addNewTicket(template) {
 	return new Promise(function(resolve, reject){
 	});
 }
@@ -296,54 +295,67 @@ function addNewTicket(template) {
  *
  * @return {[type]}               [description]
  */
-function cloneTicket(issue, cloneTemplate = null) {
+async function cloneTicket(issue, cloneTemplate = null) {
 	var cloneIssue = null;
 
 	if (cloneTemplate) {
-		cloneIssue = cloneTemplate;
+		 cloneIssue = cloneTemplate;
 	} else {
-		cloneIssue = prepareTemplate(issue);
+		cloneIssue = await prepareTemplate(issue);
 	}
-	return new Promise(function(resolve, reject) {
-		jira.addNewIssue(cloneIssue.ticket, (error ,response) => {
-	 		var obj = {};
-			if(response) {
+
+	//console.log("AAAAA", (JSON.stringify(cloneIssue.subtasks)));
+	//console.log("BBBB", (JSON.stringify(issue.fields.subtasks)));
+	return await new Promise(async function(resolve, reject) {
+		await setTimeout(async function(){
+			await jira.addNewIssue(cloneIssue.ticket, async (error ,response) => {
+			await setTimeout(async function() {
+    			//console.log('Time extra 1', cloneIssue.ticket, error, response);
+			
+	 		
+			if(response && !error) {
 			 	const newTicketKey = response.key;
-			 	// console.log('Cloned ticket ', issue.key, ' -> ', newTicketKey);
-			 	if (issue.fields.subtasks) {
-			 		Promise.all(issue.fields.subtasks.map(
-			 		 	function (obj) {
+			    console.log('Cloned ticket ', issue.key, ' -> ', newTicketKey);
+			 	if (issue.fields.subtasks && issue.fields.subtasks.length > 0) {
+			 		//console.log("Here");
+			 		Promise.all( issue.fields.subtasks.map(
+			 		 	 function (obj) {
+			 		 	 	//console.log("OBJ", obj);
 			 		 		return cloneSubtask(obj, newTicketKey);
-			 		 	}
-			 		))
-			 		.then(
+			 		 	})).then(
 			 			function(data){
 				 			var obj_ = {};
 				 			obj_[issue.key] = newTicketKey;
 				 			data.push(obj_);
 				 		    resolve(data);
-			 			}, 
-			 			function(err){
-			 				debugMessage("Error when adding new issue : ", cloneIssue.ticket, "Data", data, '\nError', err);
 			 			}
-			 		);
+			 			, 
+			 			function(err){
+			 				console.log("Error when adding new issue : ", cloneIssue.ticket, "Data", data, '\nError', err);
+			 			}
+			 		).catch(function(err){console.log("Error when adding new issue : ", cloneIssue.ticket)});
 			 	} else {
+			 		var obj = {};
 			 		obj[issue.key] = newTicketKey;
 			 		resolve(obj);
 			 	}
-			}
-
-			if (error) {
-	 			resolve (cloneTicket(issue, cloneTemplate));
+			} else {
+				//console.log("Clone error ", issue.key, error);
+				//console.log("Error ", issue.key, JSON.stringify(cloneIssue.ticket));
+	 			resolve (cloneTicket(issue));
 			}		
+			}, 1000);
 		});
+
+		}, 1000);
 	});
 }
 
 
 function cloneSubtask(issue_, parent_){
-		return new Promise(function(resolve, reject) {
-			findTicketByKey(issue_.key).then(function (issue){
+		return new Promise(async function(resolve, reject) {
+			//console.log("Clone subtask", issue_);
+			findTicketByKey(issue_.key).then(async function (issue){
 					var tmp = issue_;
 					tmp.fields.parent = { key: parent_ };
 					if (issue.fields.labels) {
@@ -353,36 +365,50 @@ function cloneSubtask(issue_, parent_){
 					if (issue.fields.description) {
 	 					tmp.fields.description = issue.fields.description;
 					}
-				jira.addNewIssue(prepareTemplate(tmp).ticket, (error ,response) => {
+				await jira.addNewIssue(prepareTemplate(tmp).ticket, (error ,response) => {
 
 					if(response && !error) {
+						//console.log("Response subtask", response);
 					 	const newTicketKey = response.key;
 					 		var obj = {};
 					 		obj[issue_.key] = response.key;
 					 		var tmp_key = issue.key;
 					 		resolve(obj);
 					} else {
-							// console.log('Retry...');
+							console.log("Error when adding subtasks", error, response);
 							resolve(cloneSubtask(issue_, parent_));
 					}		
 				});
-			});
+			}).catch(function(error){console.log("Catch clonning subtasks",error);});
 		});
 }
 
 
 function copyElements(data) {
 	var tmp =[];
-	data.forEach(d => {
+	for (var i = 0; i < data.length; i++) {
+		var d = data[i];
 		if (d.constructor === Array) {
-			d.forEach(e => {
-				tmp.push(e);
-			});
+			for (var j = 0; j < d.length; j++) {
+				tmp.push(d[j]);
+			}
 		} else {
 			tmp.push(d);
 		}
-	});
-	return tmp;
+	}
+return tmp;
+
+	// var tmp =[];
+	// data.forEach(d => {
+	// 	if (d.constructor === Array) {
+	// 		d.forEach(e => {
+	// 			tmp.push(e);
+	// 		});
+	// 	} else {
+	// 		tmp.push(d);
+	// 	}
+	// });
+	// return tmp;
 }
 
 
@@ -394,27 +420,56 @@ function copyElements(data) {
  *
  * @return {[type]}              [description]
  */
-var cloneEpicTicketst = function (epicNumber, newTicketKey) {
-	var tickets_ = [];
-	return new Promise(function(resolve, reject) {
-		jira.searchJira("\"Epic Link\" = " + epicNumber, null, (error, body) => {
-			var res = Promise.all(
-						body.issues.map(function (obj) {
-			 		 		return cloneEpicTicket(obj, newTicketKey);
-			 		 	})).then(function(data){
-									resolve(copyElements(data));
-								}, function (err){
+var cloneEpicTicketst = function (epicNumber, result) {
+	var newTicketKey = findClonedTicketKey(epicNumber , result);
+//console.log("newTicketKey", newTicketKey);
 
-								});					
+	var tickets_ = [];
+	return new Promise(async function(resolve, reject) {
+		await jira.searchJira("\"Epic Link\" = " + epicNumber, null, async (error, body) => {
+			//console.log(body);
+
+			// var res = await Promise.all(
+			// 			body.issues.map(async function (obj) {
+			//  		 		return await cloneEpicTicket(obj, newTicketKey);
+			//  		 	})).then(function(data){
+			// 	console.log('RES', copyElements(data));
+			// 						resolve(copyElements(data));
+			// 					}, function (err){
+
+			// 					});	
+			// 					
+			// 					
+			 //console.log('RESSSS', res);
+			// console.log(body.issues);									
+			// body.issues.reduce(body.issues, function (chain, d) {
+			// 	return chain.then(function (){
+			// 		//return cloneEpicTicket(d, newTicketKey); 
+			// 	}).catch(function(error){console.log(error)})
+			// }, Promise.resolve()).then(function(data){resolve(copyElements(data))})
+			// .catch(function(err){console.log(err)});
+			// 
+			//var res = [];
+			//
+			var data = [result];
+			for(var i = 0; i < body.issues.length; i++){
+				//console.log('IIIIIIII', i);
+    			var obj = body.issues[i];
+    			data.push(await cloneEpicTicket(obj, newTicketKey));
+			}
+			//console.log("DATA", copyElements(data));
+
+			resolve(copyElements(data));
+
 		});
 	});
 };
 
 var cloneEpicTicket = function(issue, newTicketKey_){
-	return findTicketByKey(issue.key).then(function(result){
+	return findTicketByKey(issue.key).then(async function(result){
 		var tmp = result;
 		tmp.fields.customfield_10009 = newTicketKey_;
-			return cloneTicket(result, prepareTemplate(tmp))
+			return await cloneTicket(result, prepareTemplate(tmp))
 					.then(	function(res){ 
 								return res;
 							}, 
@@ -453,11 +508,29 @@ Array.prototype.clean = function(deleteValue) {
 
 
 var findClonedTicketKey = function(ticket, listOfCLonedTickets) {
-	var tmp = listOfCLonedTickets.map(function(obj){
-		return findTicketInObject(obj, ticket);
-	});
-	tmp = tmp.clean(undefined);
-	return tmp[0];
+	//tmp = [];
+	//console.log("findClonedTicketKey", listOfCLonedTickets, ticket);
+	if (listOfCLonedTickets.constructor === Array) {
+		for (var i = 0; i < listOfCLonedTickets.length; i++) {
+			if(listOfCLonedTickets[i][ticket]){
+				return listOfCLonedTickets[i][ticket];
+			}
+			//tmp.push(findTicketInObject(listOfCLonedTickets[i], ticket));
+		}
+	}
+
+	if (typeof listOfCLonedTickets === 'object') {
+		return listOfCLonedTickets[ticket];
+	}
+	// tmp = tmp.clean(undefined);
+	// return tmp[0];
+
+	// console.log("listOfCLonedTickets" , listOfCLonedTickets);
+	// var tmp = listOfCLonedTickets.map(function(obj){
+	// 	return findTicketInObject(obj, ticket);
+	// });
+	// tmp = tmp.clean(undefined);
+	// return tmp[0];
 };
 
 /**
@@ -613,17 +686,18 @@ function updateRanking(ticket, data) {
 		});
 }
 
-var cloneEpic = function (epicKey) {
+var cloneEpic = async function (epicKey) {
 	var listOfAllIssues = [];
 
-	return findTicketByKey(epicKey)
-				.then(function(issue){
-						return cloneTicket(issue)
-								.then(function(result){
-									return cloneEpicTicketst(epicKey, findClonedTicketKey(epicKey , result))
+	return await findTicketByKey(epicKey)
+				.then(async function(issue){
+						return await cloneTicket(issue)
+								.then(async function(result){
+									return await cloneEpicTicketst(epicKey, result)
 											.then(function(res){
 												listOfAllIssues.push(res);
-												result = copyElements(result);
+												//console.log("listOfAllIssues", listOfAllIssues);
+												result = copyElements(listOfAllIssues);
 												result.map(function (o){
 													return udpateTickett(o, result);
 												});
